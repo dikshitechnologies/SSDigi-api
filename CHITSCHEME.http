@@ -1,0 +1,6 @@
+@CHITSCHEME_HostAddress = http://localhost:5038
+
+GET {{CHITSCHEME_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
