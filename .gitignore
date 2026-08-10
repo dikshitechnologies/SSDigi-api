@@ -360,5 +360,7 @@ MigrationBackup/
 .ionide/
 
 # Fody - auto-generated XML schema
-FodyWeavers.xsdpukhraj-chit-firebase-adminsdk-*.json 
-ssdigi-6cfec-firebase-adminsdk-fbsvc-83bac60409
+FodyWeavers.xsd
+
+# Firebase service account keys — never commit these
+*firebase-adminsdk-*.json
