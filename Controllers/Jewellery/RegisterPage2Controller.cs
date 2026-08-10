@@ -28,7 +28,7 @@ namespace CHITSCHEME.Controllers.Jewellery
             {
                 if (_firebaseInitialized) return;
                 var jsonPath = Path.Combine(AppContext.BaseDirectory,
-                    "pukhraj-chit-firebase-adminsdk-fbsvc-b739f8988d.json");
+                    "ssdigi-6cfec-firebase-adminsdk-fbsvc-83bac60409.json");
                 if (FirebaseApp.DefaultInstance == null)
                 {
                     FirebaseApp.Create(new AppOptions
@@ -52,7 +52,7 @@ namespace CHITSCHEME.Controllers.Jewellery
             {
                 EnsureFirebaseInitialized();
 
-                string title = "Welcome to Pukhraj Elite Jewellers! 🎉";
+                string title = "Welcome to SSDigi! 🎉";
                 string body  = $"Hi {userName}! Explore our latest collections, daily gold rates, and exclusive savings schemes.";
 
                 var message = new Message

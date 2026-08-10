@@ -2,7 +2,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
 
-namespace CHITSCHEME_PukhRaj.Controllers.ReferandEarn
+namespace CHITSCHEME_SSDigi.Controllers.ReferandEarn
 {
     [Route("api/[controller]")]
     [ApiController]

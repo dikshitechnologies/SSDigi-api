@@ -25,7 +25,7 @@ namespace CHITSCHEME.Controllers.Jewellery
                 if (_firebaseInitialized) return;
 
                 var jsonPath = Path.Combine(AppContext.BaseDirectory,
-                    "pukhraj-chit-firebase-adminsdk-fbsvc-b739f8988d.json");
+                    "ssdigi-6cfec-firebase-adminsdk-fbsvc-83bac60409.json");
 
                 // Only create if no default app exists yet
                 if (FirebaseApp.DefaultInstance == null)
@@ -67,7 +67,7 @@ namespace CHITSCHEME.Controllers.Jewellery
 
                 string title    = "Today's Rates!";
                 string body     = $"Gold 22K - ₹{goldRate} per gram\nSilver - ₹{silverRate} per gram";
-                string imageUrl = "https://app.dikshitech.com/pukhrajchit/NotifyImg/Pukhraj.png";
+                string imageUrl = "https://app.dikshitech.com/ssdigi/NotifyImg/SSDigi.png";
 
                 var dataPayload = new Dictionary<string, string>
                 {

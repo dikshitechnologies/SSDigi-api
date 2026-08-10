@@ -36,7 +36,7 @@ namespace CHITSCHEME.Global
                 "We Miss You",
                 "It's been a while! Check out our latest collections, offers, and gold rates."),
 
-            _ => ("Pukhraj Jewellers", "Check out our latest offers!")
+            _ => ("SSDigi", "Check out our latest offers!")
         };
     }
 }

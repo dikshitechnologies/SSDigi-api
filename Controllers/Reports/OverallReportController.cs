@@ -8,7 +8,7 @@ using JEWELLBISREACT.DBConnection;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
 
-namespace CHITSCHEME_PukhRaj.Controllers.Reports
+namespace CHITSCHEME_SSDigi.Controllers.Reports
 {
     [Route("api/[controller]")]
     [ApiController]

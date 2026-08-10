@@ -25,7 +25,7 @@ namespace CHITSCHEME.Controllers.FireBaseMsg
                 if (_firebaseInitialized) return;
 
                 var jsonPath = Path.Combine(AppContext.BaseDirectory,
-                    "pukhraj-chit-firebase-adminsdk-fbsvc-b739f8988d.json");
+                    "ssdigi-6cfec-firebase-adminsdk-fbsvc-83bac60409.json");
 
                 if (FirebaseApp.DefaultInstance == null)
                 {
@@ -91,7 +91,7 @@ namespace CHITSCHEME.Controllers.FireBaseMsg
                     using (var stream = new FileStream(fullPath, FileMode.Create))
                         await image.CopyToAsync(stream);
 
-                    imageUrl = $"https://app.dikshitech.com/pukhrajchit/notification/{fileName}";
+                    imageUrl = $"https://app.dikshitech.com/ssdigi/notification/{fileName}";
                 }
 
                 // ── 2. Fetch all valid FCM tokens ────────────────────────────────

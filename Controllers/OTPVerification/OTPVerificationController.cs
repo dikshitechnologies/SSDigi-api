@@ -70,7 +70,7 @@ namespace CHITSCHEME.Controllers.OTPVerification
                 if (!isDemoAccount)
                 {
                     string smsMessage = Uri.EscapeDataString(
-                        $"Dear Customer, Your OTP for Pukhraj Elite Jewellers is {otp}. This OTP is valid for 10 minutes. Please do not share this OTP with anyone -DIKSHI");
+                        $"Dear Customer, Your OTP for SSDigi is {otp}. This OTP is valid for 10 minutes. Please do not share this OTP with anyone -DIKSHI");
 
                     string smsUrl = $"{SmsBaseUrl}" +
                                     $"?key={SmsKey}" +

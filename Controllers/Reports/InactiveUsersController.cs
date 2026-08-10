@@ -3,7 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
 using System.Data;
 
-namespace CHITSCHEME_PukhRaj.Controllers.Reports
+namespace CHITSCHEME_SSDigi.Controllers.Reports
 {
     [Route("api/[controller]")]
     [ApiController]
