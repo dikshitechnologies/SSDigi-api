@@ -10,6 +10,12 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
+// ── OmniPay Payment Gateway HTTP client ──────────────────────────────────────
+builder.Services.AddHttpClient("OmniPG", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(30);
+});
+
 // ── Background notification scheduler (runs every 30 mins) ──
 builder.Services.AddHostedService<NotificationSchedulerService>();
 
