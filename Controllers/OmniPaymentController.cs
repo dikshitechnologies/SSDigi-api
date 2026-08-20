@@ -74,6 +74,10 @@ namespace CHITSCHEME.Controllers
                 { "return_url_cancel",  $"{Request.Scheme}://{Request.Host}/api/OmniPayment/record" },
             };
 
+            // Pass UserId via udf1 so it comes back in the return_url callback
+            if (!string.IsNullOrWhiteSpace(req.UserId))
+                parameters["udf1"] = req.UserId;
+
             parameters["hash"] = ComputeHash(parameters);
 
             try
@@ -237,12 +241,27 @@ namespace CHITSCHEME.Controllers
                 using (SqlConnection con = new SqlConnection(DBHelper.GetConnection()))
                 {
                     string query = @"
-                        INSERT INTO OmniPaymentRecords
-                        (OrderId, TransactionId, ResponseCode, ResponseMessage, Amount,
-                         PaymentMode, PaymentChannel, PaymentDatetime, Name, Email, Phone, CreatedAt)
-                        VALUES
-                        (@OrderId, @TransactionId, @ResponseCode, @ResponseMessage, @Amount,
-                         @PaymentMode, @PaymentChannel, @PaymentDatetime, @Name, @Email, @Phone, GETDATE())";
+                        IF EXISTS (SELECT 1 FROM OmniPaymentRecords WHERE OrderId = @OrderId)
+                            UPDATE OmniPaymentRecords SET
+                                TransactionId   = @TransactionId,
+                                ResponseCode    = @ResponseCode,
+                                ResponseMessage = @ResponseMessage,
+                                Amount          = @Amount,
+                                PaymentMode     = @PaymentMode,
+                                PaymentChannel  = @PaymentChannel,
+                                PaymentDatetime = @PaymentDatetime,
+                                Name            = @Name,
+                                Email           = @Email,
+                                Phone           = @Phone,
+                                UserId          = @UserId
+                            WHERE OrderId = @OrderId
+                        ELSE
+                            INSERT INTO OmniPaymentRecords
+                            (OrderId, TransactionId, ResponseCode, ResponseMessage, Amount,
+                             PaymentMode, PaymentChannel, PaymentDatetime, Name, Email, Phone, UserId, CreatedAt)
+                            VALUES
+                            (@OrderId, @TransactionId, @ResponseCode, @ResponseMessage, @Amount,
+                             @PaymentMode, @PaymentChannel, @PaymentDatetime, @Name, @Email, @Phone, @UserId, GETDATE())";
 
                     using (SqlCommand cmd = new SqlCommand(query, con))
                     {
@@ -257,6 +276,7 @@ namespace CHITSCHEME.Controllers
                         cmd.Parameters.AddWithValue("@Name",            model.Name            ?? "");
                         cmd.Parameters.AddWithValue("@Email",           model.Email           ?? "");
                         cmd.Parameters.AddWithValue("@Phone",           model.Phone           ?? "");
+                        cmd.Parameters.AddWithValue("@UserId",          model.Udf1            ?? "");
 
                         con.Open();
                         cmd.ExecuteNonQuery();
@@ -408,6 +428,7 @@ namespace CHITSCHEME.Controllers
         public string  Email       { get; set; }   // customer email
         public string  Phone       { get; set; }   // customer phone
         public string? Description { get; set; }   // optional — default: "Payment"
+        public string? UserId      { get; set; }   // internal user id — stored in OmniPaymentRecords
     }
 
     // 2. verify-payment
