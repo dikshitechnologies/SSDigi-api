@@ -17,6 +17,13 @@ namespace CHITSCHEME.Models
         /// Required when HasReferral = 1.
         /// </summary>
         public string ReferrerId { get; set; }
+
+        /// <summary>
+        /// Omniware transaction_id returned in the payment callback.
+        /// Used for idempotency: InsertChitScheme will skip a duplicate insert
+        /// if the same transaction_id was already written to Bledger.
+        /// </summary>
+        public string OmniTransactionId { get; set; }
     }
 
 

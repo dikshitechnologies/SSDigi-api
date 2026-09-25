@@ -5,6 +5,8 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Data.SqlClient;
 using JEWELLBISREACT.DBConnection;
+using CHITSCHEME.Models;
+using System.Data;
 
 namespace CHITSCHEME.Controllers
 {
@@ -195,7 +197,7 @@ namespace CHITSCHEME.Controllers
         // ── 3. RECORD  (PG posts here after payment — return_url) ───────────────
         [AllowAnonymous]
         [HttpPost("record")]
-        public IActionResult RecordPayment([FromForm] OmniRecordModel model)
+        public async Task<IActionResult> RecordPayment([FromForm] OmniRecordModel model)
         {
             try
             {
@@ -238,9 +240,14 @@ namespace CHITSCHEME.Controllers
                         return BadRequest(new { status = "error", message = "Hash mismatch. Possible tampering." });
                 }
 
+                bool isSuccess = model.ResponseCode == "0";
+
                 using (SqlConnection con = new SqlConnection(DBHelper.GetConnection()))
                 {
-                    string query = @"
+                    con.Open();
+
+                    // ── Upsert audit record ──────────────────────────────────────────
+                    string upsertQuery = @"
                         IF EXISTS (SELECT 1 FROM OmniPaymentRecords WHERE OrderId = @OrderId)
                             UPDATE OmniPaymentRecords SET
                                 TransactionId   = @TransactionId,
@@ -263,7 +270,7 @@ namespace CHITSCHEME.Controllers
                             (@OrderId, @TransactionId, @ResponseCode, @ResponseMessage, @Amount,
                              @PaymentMode, @PaymentChannel, @PaymentDatetime, @Name, @Email, @Phone, @UserId, GETDATE())";
 
-                    using (SqlCommand cmd = new SqlCommand(query, con))
+                    using (SqlCommand cmd = new SqlCommand(upsertQuery, con))
                     {
                         cmd.Parameters.AddWithValue("@OrderId",         model.OrderId         ?? "");
                         cmd.Parameters.AddWithValue("@TransactionId",   model.TransactionId   ?? "");
@@ -277,20 +284,139 @@ namespace CHITSCHEME.Controllers
                         cmd.Parameters.AddWithValue("@Email",           model.Email           ?? "");
                         cmd.Parameters.AddWithValue("@Phone",           model.Phone           ?? "");
                         cmd.Parameters.AddWithValue("@UserId",          model.Udf1            ?? "");
-
-                        con.Open();
                         cmd.ExecuteNonQuery();
-                        con.Close();
+                    }
+
+                    // ── On success: run ChitScheme insert from saved pending payload ──
+                    if (isSuccess && !string.IsNullOrWhiteSpace(model.OrderId))
+                    {
+                        string voucherNo = null;
+
+                        // ── Idempotency: skip if already inserted for this transaction ──
+                        if (!string.IsNullOrWhiteSpace(model.TransactionId))
+                        {
+                            using var idempCmd = new SqlCommand(
+                                "SELECT TOP 1 fVouchno FROM Bledger WHERE FOmniTransactionId = @tid AND fBillType = 'CT'",
+                                con);
+                            idempCmd.Parameters.AddWithValue("@tid", model.TransactionId);
+                            var existing = await idempCmd.ExecuteScalarAsync();
+                            if (existing != null && existing != DBNull.Value)
+                            {
+                                await MarkPendingComplete(con, model.OrderId, model.TransactionId);
+                                return Ok(new
+                                {
+                                    status        = "success",
+                                    message       = "Already inserted.",
+                                    voucherNo     = existing.ToString(),
+                                    transactionId = model.TransactionId,
+                                    orderId       = model.OrderId
+                                });
+                            }
+                        }
+
+                        // ── Fetch saved ChitPayload from OmniPendingPayments ─────────
+                        List<SchemeList> schemeDetails = null;
+                        int pendingRowId = 0;
+
+                        using (var pendingCmd = new SqlCommand(@"
+                            SELECT TOP 1 Id, ChitPayload
+                            FROM dbo.OmniPendingPayments
+                            WHERE OrderId = @oid
+                              AND Status NOT IN ('completed')",
+                            con))
+                        {
+                            pendingCmd.Parameters.AddWithValue("@oid", model.OrderId);
+                            using var pendingReader = await pendingCmd.ExecuteReaderAsync();
+                            if (await pendingReader.ReadAsync())
+                            {
+                                pendingRowId = pendingReader.GetInt32(0);
+                                string rawPayload = pendingReader.IsDBNull(1) ? null : pendingReader.GetString(1);
+                                pendingReader.Close();
+
+                                if (!string.IsNullOrWhiteSpace(rawPayload))
+                                {
+                                    try
+                                    {
+                                        var savedModel = JsonSerializer.Deserialize<ChitSchemeModel>(rawPayload,
+                                            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                                        if (savedModel?.SchemeDetails != null && savedModel.SchemeDetails.Count > 0)
+                                            schemeDetails = savedModel.SchemeDetails;
+                                    }
+                                    catch { /* malformed payload — skip insert */ }
+                                }
+                            }
+                            else { pendingReader.Close(); }
+                        }
+
+                        if (schemeDetails != null && schemeDetails.Count > 0)
+                        {
+                            try
+                            {
+                                using var transaction = con.BeginTransaction(IsolationLevel.Serializable);
+
+                                // Race-guard inside the transaction
+                                if (!string.IsNullOrWhiteSpace(model.TransactionId))
+                                {
+                                    using var raceCmd = new SqlCommand(
+                                        "SELECT TOP 1 fVouchno FROM Bledger WHERE FOmniTransactionId = @tid AND fBillType = 'CT'",
+                                        con, transaction);
+                                    raceCmd.Parameters.AddWithValue("@tid", model.TransactionId);
+                                    var raceCheck = await raceCmd.ExecuteScalarAsync();
+                                    if (raceCheck != null && raceCheck != DBNull.Value)
+                                    {
+                                        transaction.Rollback();
+                                        await MarkPendingComplete(con, model.OrderId, model.TransactionId);
+                                        return Ok(new { status = "success", message = "Already inserted (race check).", voucherNo = raceCheck.ToString() });
+                                    }
+                                }
+
+                                voucherNo = SchemeDetailsController.GetSingleChitSchemeVoucherNo(con, transaction);
+
+                                foreach (var item in schemeDetails)
+                                {
+                                    using var dueCmd = new SqlCommand(
+                                        "SELECT ISNULL(MAX(FDUE), 0) FROM ledger WITH (UPDLOCK, HOLDLOCK) " +
+                                        "WHERE fid = @fid AND fCrDb = 'CR' AND fType = 'CT'",
+                                        con, transaction);
+                                    dueCmd.Parameters.AddWithValue("@fid", item.SchemeCode);
+                                    var dueResult = await dueCmd.ExecuteScalarAsync();
+                                    item.FDUE = ((dueResult != DBNull.Value ? Convert.ToInt32(dueResult) : 0) + 1).ToString();
+                                }
+
+                                SchemeDetailsController.InsertBledgerPublic(schemeDetails, voucherNo, con, transaction, model.TransactionId);
+                                SchemeDetailsController.InsertLedgerPublic(schemeDetails, voucherNo, con, transaction);
+
+                                transaction.Commit();
+
+                                // Post-commit book-keeping (best-effort)
+                                await MarkPendingComplete(con, model.OrderId, model.TransactionId);
+                            }
+                            catch (Exception insertEx)
+                            {
+                                await MarkPendingFailed(con, model.OrderId, insertEx.Message);
+                                // Don't fail the whole response — audit record is already saved
+                            }
+                        }
+
+                        return Ok(new
+                        {
+                            status        = "success",
+                            message       = model.ResponseMessage,
+                            transactionId = model.TransactionId,
+                            orderId       = model.OrderId,
+                            amount        = model.Amount,
+                            voucherNo     = voucherNo
+                        });
                     }
                 }
 
                 return Ok(new
                 {
-                    status         = model.ResponseCode == "0" ? "success" : "failed",
-                    message        = model.ResponseMessage,
-                    transactionId  = model.TransactionId,
-                    orderId        = model.OrderId,
-                    amount         = model.Amount
+                    status        = isSuccess ? "success" : "failed",
+                    message       = model.ResponseMessage,
+                    transactionId = model.TransactionId,
+                    orderId       = model.OrderId,
+                    amount        = model.Amount
                 });
             }
             catch (Exception ex)
@@ -360,6 +486,89 @@ namespace CHITSCHEME.Controllers
             using var sha = SHA512.Create();
             return BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(sb.ToString())))
                                .Replace("-", "").ToUpper();
+        }
+
+        // ── 5. SAVE-PENDING ──────────────────────────────────────────────────────
+        // Called by the app BEFORE redirecting the user to paymentUrl.
+        // Stores the full ChitSchemeModel payload alongside the Omniware orderId
+        // so the record callback can complete the Bledger/Ledger insert even if
+        // the user closes the app before the PG redirects back.
+        [HttpPost("save-pending")]
+        public async Task<IActionResult> SavePending([FromBody] OmniSavePendingRequest req)
+        {
+            if (req == null
+                || string.IsNullOrWhiteSpace(req.OrderId)
+                || req.ChitPayload == null)
+                return BadRequest(new { message = "OrderId and ChitPayload are required." });
+
+            try
+            {
+                string payloadJson = JsonSerializer.Serialize(req.ChitPayload);
+
+                using var conn = new SqlConnection(DBHelper.GetConnection());
+                await conn.OpenAsync();
+
+                // MERGE so that a retry from the app does not create duplicate rows.
+                // Only resets to 'pending' if the row was never processed.
+                using var cmd = new SqlCommand(@"
+                    MERGE dbo.OmniPendingPayments AS target
+                    USING (SELECT @OrderId AS OrderId) AS source
+                        ON target.OrderId = source.OrderId
+                    WHEN NOT MATCHED THEN
+                        INSERT (OrderId, UserId, ChitPayload, Status, CreatedAt)
+                        VALUES (@OrderId, @UserId, @Payload, 'pending', GETDATE())
+                    WHEN MATCHED AND target.Status NOT IN ('completed', 'processing') THEN
+                        UPDATE SET ChitPayload = @Payload,
+                                   UserId      = @UserId,
+                                   Status      = 'pending';",
+                    conn);
+
+                cmd.Parameters.AddWithValue("@OrderId", req.OrderId);
+                cmd.Parameters.AddWithValue("@UserId",  req.UserId ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@Payload", payloadJson);
+
+                await cmd.ExecuteNonQueryAsync();
+
+                return Ok(new { message = "Pending payment saved.", orderId = req.OrderId });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Failed to save pending payment.", error = ex.Message });
+            }
+        }
+
+        // ── PENDING HELPERS ──────────────────────────────────────────────────────
+
+        private static async Task MarkPendingComplete(SqlConnection conn, string orderId, string transactionId)
+        {
+            try
+            {
+                using var cmd = new SqlCommand(@"
+                    UPDATE dbo.OmniPendingPayments
+                    SET Status = 'completed', ProcessedAt = GETDATE(), TransactionId = @tid
+                    WHERE OrderId = @oid",
+                    conn);
+                cmd.Parameters.AddWithValue("@tid", transactionId ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@oid", orderId ?? "");
+                await cmd.ExecuteNonQueryAsync();
+            }
+            catch { /* best-effort */ }
+        }
+
+        private static async Task MarkPendingFailed(SqlConnection conn, string orderId, string error)
+        {
+            try
+            {
+                using var cmd = new SqlCommand(@"
+                    UPDATE dbo.OmniPendingPayments
+                    SET Status = 'failed', ProcessedAt = GETDATE(), ErrorMessage = @err
+                    WHERE OrderId = @oid",
+                    conn);
+                cmd.Parameters.AddWithValue("@err", error ?? "");
+                cmd.Parameters.AddWithValue("@oid", orderId ?? "");
+                await cmd.ExecuteNonQueryAsync();
+            }
+            catch { /* best-effort */ }
         }
 
         // ── DEBUG — inspect exactly what is posted to PG (remove in production) ─
@@ -473,5 +682,22 @@ namespace CHITSCHEME.Controllers
     public class OmniExpireRequest
     {
         public string Uuid { get; set; }  // UUID returned by create-order
+    }
+
+    // 5. save-pending
+    public class OmniSavePendingRequest
+    {
+        /// <summary>The orderId returned by create-order (e.g. "OMN1234567890").</summary>
+        public string OrderId { get; set; }
+
+        /// <summary>Internal user ID — stored for audit/fallback lookup.</summary>
+        public string? UserId { get; set; }
+
+        /// <summary>
+        /// The full ChitSchemeModel that would be passed to InsertChitScheme.
+        /// OmniTransactionId is not known yet at this stage — it is filled in by
+        /// the record callback when the PG posts back.
+        /// </summary>
+        public ChitSchemeModel ChitPayload { get; set; }
     }
 }
