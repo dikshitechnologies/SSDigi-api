@@ -291,17 +291,23 @@ namespace CHITSCHEME_SSDigi.Controllers.Reports
                 return StatusCode(500, new { success = false, message = ex.Message });
             }
         }
+
         [HttpGet("GetPaymentDetails")]
         public async Task<IActionResult> GetPaymentDetails(
-            [FromQuery] string customerCode = null,
-            [FromQuery] int page = 1,
-            [FromQuery] int pageSize = 10)
+    [FromQuery] string customerCode = null,
+    int page = 1,
+    int pageSize = 10)
         {
             try
             {
-                if (page < 1) page = 1;
-                if (pageSize < 1) pageSize = 10;
-                if (pageSize > 100) pageSize = 100;
+                if (page < 1)
+                    page = 1;
+
+                if (pageSize < 1)
+                    pageSize = 10;
+
+                if (pageSize > 100)
+                    pageSize = 100;
 
                 var result = new List<PaymentDetailDto>();
                 int totalCount = 0;
@@ -309,41 +315,130 @@ namespace CHITSCHEME_SSDigi.Controllers.Reports
                 using var conn = new SqlConnection(DBHelper.GetConnection());
                 await conn.OpenAsync();
 
-                // Get total count for pagination
+
+                // ============================================================
+                // TOTAL COUNT
+                // ============================================================
+
                 string countQuery = @"
-                    SELECT COUNT(*)
-                    FROM BLEDGER B
-                    LEFT JOIN PARTY P ON P.FCODE = B.FCUCODE
-                    WHERE B.fbilltype='CT'
-                      AND (@CustomerCode IS NULL OR @CustomerCode='' OR B.FCUCODE = @CustomerCode)";
+            SELECT COUNT(*)
+            FROM BLEDGER B
+            LEFT JOIN PARTY P
+                ON P.FCODE = B.FCUCODE
+
+            WHERE B.FBILLTYPE = 'CT'
+
+              AND (
+                    @CustomerCode IS NULL
+                    OR @CustomerCode = ''
+                    OR B.FCUCODE = @CustomerCode
+                  )";
+
 
                 using var countCmd = new SqlCommand(countQuery, conn);
-                countCmd.Parameters.AddWithValue("@CustomerCode", (object)customerCode ?? DBNull.Value);
-                totalCount = Convert.ToInt32(await countCmd.ExecuteScalarAsync());
 
-                // Get paginated data
+                countCmd.Parameters.AddWithValue(
+                    "@CustomerCode",
+                    string.IsNullOrWhiteSpace(customerCode)
+                        ? DBNull.Value
+                        : customerCode
+                );
+
+                totalCount =
+                    Convert.ToInt32(
+                        await countCmd.ExecuteScalarAsync()
+                    );
+
+
+                // ============================================================
+                // PAGINATED DATA
+                // ============================================================
+
                 string query = @"
-                    SELECT
-                        P.FID,
-                        B.fcucode,
-                        P.FACNAME,
-                        B.FWT,
-                        B.FBILLAMT,
-                        B.FONLINE,
-                        B.FVOUCHNO,
-                        B.fVouchdt
-                    FROM BLEDGER B
-                    LEFT JOIN PARTY P ON P.FCODE = B.FCUCODE
-                    WHERE B.fbilltype='CT'
-                      AND (@CustomerCode IS NULL OR @CustomerCode='' OR B.FCUCODE = @CustomerCode)
-                    ORDER BY B.fVouchdt DESC
-                    OFFSET @Offset ROWS
-                    FETCH NEXT @PageSize ROWS ONLY;";
+            SELECT
+                P.FID,
+
+                B.FCUCODE,
+
+                P.FACNAME,
+
+                B.FWT,
+
+                B.FBILLAMT,
+
+                B.FONLINE,
+
+                B.FVOUCHNO,
+
+                B.FVOUCHDT,
+
+                B.FCASH,
+
+                B.FCARD,
+
+                B.FUPI,
+
+                B.FNEFT,
+
+                CASE
+                    WHEN ISNULL(B.FCASH, 0) > 0
+                        THEN 'CASH'
+
+                    WHEN ISNULL(B.FCARD, 0) > 0
+                        THEN 'CARD'
+
+                    WHEN ISNULL(B.FUPI, 0) > 0
+                        THEN 'UPI'
+
+                    WHEN ISNULL(B.FNEFT, 0) > 0
+                        THEN 'NEFT'
+
+                    ELSE 'UNKNOWN'
+                END AS PayMode
+
+            FROM BLEDGER B
+
+            LEFT JOIN PARTY P
+                ON P.FCODE = B.FCUCODE
+
+            WHERE B.FBILLTYPE = 'CT'
+
+              AND (
+                    @CustomerCode IS NULL
+                    OR @CustomerCode = ''
+                    OR B.FCUCODE = @CustomerCode
+                  )
+
+            ORDER BY B.FVOUCHDT DESC
+
+            OFFSET @Offset ROWS
+
+            FETCH NEXT @PageSize ROWS ONLY;";
+
 
                 using var cmd = new SqlCommand(query, conn);
-                cmd.Parameters.AddWithValue("@CustomerCode", (object)customerCode ?? DBNull.Value);
-                cmd.Parameters.AddWithValue("@Offset", (page - 1) * pageSize);
-                cmd.Parameters.AddWithValue("@PageSize", pageSize);
+
+                cmd.Parameters.AddWithValue(
+                    "@CustomerCode",
+                    string.IsNullOrWhiteSpace(customerCode)
+                        ? DBNull.Value
+                        : customerCode
+                );
+
+                cmd.Parameters.AddWithValue(
+                    "@Offset",
+                    (page - 1) * pageSize
+                );
+
+                cmd.Parameters.AddWithValue(
+                    "@PageSize",
+                    pageSize
+                );
+
+
+                // ============================================================
+                // READ DATA
+                // ============================================================
 
                 using var reader = await cmd.ExecuteReaderAsync();
 
@@ -351,36 +446,91 @@ namespace CHITSCHEME_SSDigi.Controllers.Reports
                 {
                     result.Add(new PaymentDetailDto
                     {
-                        FID = reader["FID"] != DBNull.Value ? reader["FID"].ToString() : null,
-                        FCucode = reader["fcucode"].ToString(),
-                        FAcname = reader["FACNAME"] != DBNull.Value ? reader["FACNAME"].ToString() : null,
-                        FWT = reader["FWT"] != DBNull.Value ? Convert.ToDecimal(reader["FWT"]) : 0,
-                        FBillAmt = reader["FBILLAMT"] != DBNull.Value ? Convert.ToDecimal(reader["FBILLAMT"]) : 0,
-                        FOnline = reader["FONLINE"] != DBNull.Value ? reader["FONLINE"].ToString() : null,
-                        FVouchNo = reader["FVOUCHNO"].ToString(),
-                        FVouchDt = Convert.ToDateTime(reader["fVouchdt"])
+                        FID =
+                            reader["FID"] != DBNull.Value
+                                ? reader["FID"].ToString()
+                                : null,
+
+                        FCucode =
+                            reader["FCUCode"] != DBNull.Value
+                                ? reader["FCUCode"].ToString()
+                                : null,
+
+                        FAcname =
+                            reader["FACNAME"] != DBNull.Value
+                                ? reader["FACNAME"].ToString()
+                                : null,
+
+                        FWT =
+                            reader["FWT"] != DBNull.Value
+                                ? Convert.ToDecimal(reader["FWT"])
+                                : 0,
+
+                        FBillAmt =
+                            reader["FBILLAMT"] != DBNull.Value
+                                ? Convert.ToDecimal(reader["FBILLAMT"])
+                                : 0,
+
+                        FOnline =
+                            reader["FONLINE"] != DBNull.Value
+                                ? reader["FONLINE"].ToString()
+                                : null,
+
+                        FVouchNo =
+                            reader["FVOUCHNO"] != DBNull.Value
+                                ? reader["FVOUCHNO"].ToString()
+                                : null,
+
+                        FVouchDt =
+                            reader["FVOUCHDT"] != DBNull.Value
+                                ? Convert.ToDateTime(reader["FVOUCHDT"])
+                                : DateTime.MinValue,
+
+                        PayMode =
+                            reader["PayMode"] != DBNull.Value
+                                ? reader["PayMode"].ToString()
+                                : "UNKNOWN"
                     });
                 }
+
+
+                // ============================================================
+                // RESPONSE
+                // ============================================================
 
                 return Ok(new
                 {
                     success = true,
+
                     data = result,
+
                     pagination = new
                     {
                         currentPage = page,
+
                         pageSize = pageSize,
+
                         totalCount = totalCount,
-                        totalPages = (int)Math.Ceiling((double)totalCount / pageSize)
+
+                        totalPages =
+                            (int)Math.Ceiling(
+                                (double)totalCount / pageSize
+                            )
                     }
                 });
             }
             catch (Exception ex)
             {
-                return StatusCode(500, new { success = false, message = ex.Message });
+                return StatusCode(
+                    500,
+                    new
+                    {
+                        success = false,
+                        message = ex.Message
+                    }
+                );
             }
         }
-
 
         private static string GetSafeString(SqlDataReader reader, string columnName)
         {
@@ -444,6 +594,7 @@ namespace CHITSCHEME_SSDigi.Controllers.Reports
         public string FOnline { get; set; }
         public string FVouchNo { get; set; }
         public DateTime FVouchDt { get; set; }
+        public string PayMode { get; set; }
     }
     
 }

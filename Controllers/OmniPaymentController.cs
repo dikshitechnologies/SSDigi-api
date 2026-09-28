@@ -71,9 +71,9 @@ namespace CHITSCHEME.Controllers
                 { "state",              "Tamil Nadu" },
                 { "country",            "IND" },
                 { "zip_code",           "600001" },
-                { "return_url",         $"{Request.Scheme}://{Request.Host}/api/OmniPayment/record" },
-                { "return_url_failure", $"{Request.Scheme}://{Request.Host}/api/OmniPayment/record" },
-                { "return_url_cancel",  $"{Request.Scheme}://{Request.Host}/api/OmniPayment/record" },
+                { "return_url",         $"{Request.Scheme}://{Request.Host}{Request.PathBase}/api/Payment/Omni-webhook/success" },
+                { "return_url_failure", $"{Request.Scheme}://{Request.Host}{Request.PathBase}/api/Payment/Omni-webhook/failure" },
+                { "return_url_cancel",  $"{Request.Scheme}://{Request.Host}{Request.PathBase}/api/Payment/Omni-webhook/cancel" },
             };
 
             // Pass UserId via udf1 so it comes back in the return_url callback
@@ -196,7 +196,8 @@ namespace CHITSCHEME.Controllers
 
         // ── 3. RECORD  (PG posts here after payment — return_url) ───────────────
         [AllowAnonymous]
-        [HttpPost("record")]
+        [HttpPost("~/api/Payment/Omni-webhook")]
+        [HttpPost("~/api/Payment/Omni-webhook/success")]
         public async Task<IActionResult> RecordPayment([FromForm] OmniRecordModel model)
         {
             try
@@ -233,12 +234,12 @@ namespace CHITSCHEME.Controllers
                 Add("udf4",             model.Udf4);
                 Add("udf5",             model.Udf5);
 
-                if (!string.IsNullOrWhiteSpace(model.Hash))
-                {
-                    string expected = ComputeHash(parameters);
-                    if (!string.Equals(expected, model.Hash, StringComparison.OrdinalIgnoreCase))
-                        return BadRequest(new { status = "error", message = "Hash mismatch. Possible tampering." });
-                }
+                if (string.IsNullOrWhiteSpace(model.Hash))
+                    return BadRequest(new { status = "error", message = "Missing Omni payment hash." });
+
+                string expected = ComputeHash(parameters);
+                if (!string.Equals(expected, model.Hash, StringComparison.OrdinalIgnoreCase))
+                    return BadRequest(new { status = "error", message = "Hash mismatch. Possible tampering." });
 
                 bool isSuccess = model.ResponseCode == "0";
 
@@ -426,6 +427,26 @@ namespace CHITSCHEME.Controllers
         }
 
         // ── 4. VERIFY (expire a payment URL) ────────────────────────────────────
+        // Omni can navigate with GET after a redirect. Return structured JSON
+        // for every callback path so the mobile WebView never displays a 404.
+        [AllowAnonymous]
+        [HttpGet("~/api/Payment/Omni-webhook/success")]
+        public IActionResult SuccessRedirect([FromQuery(Name = "order_id")] string? orderId,
+                                             [FromQuery(Name = "transaction_id")] string? transactionId)
+            => Ok(new { status = "success", orderId, transactionId });
+
+        [AllowAnonymous]
+        [AcceptVerbs("GET", "POST")]
+        [Route("~/api/Payment/Omni-webhook/failure")]
+        public IActionResult FailureRedirect([FromQuery(Name = "order_id")] string? orderId)
+            => Ok(new { status = "failed", orderId, message = "Payment was not completed." });
+
+        [AllowAnonymous]
+        [AcceptVerbs("GET", "POST")]
+        [Route("~/api/Payment/Omni-webhook/cancel")]
+        public IActionResult CancelRedirect([FromQuery(Name = "order_id")] string? orderId)
+            => Ok(new { status = "failed", orderId, message = "Payment was cancelled." });
+
         [HttpPost("verify")]
         public async Task<IActionResult> Verify([FromBody] OmniExpireRequest req)
         {
@@ -599,9 +620,9 @@ namespace CHITSCHEME.Controllers
                 { "state",              "Tamil Nadu" },
                 { "country",            "IND" },
                 { "zip_code",           "600001" },
-                { "return_url",         $"{Request.Scheme}://{Request.Host}/api/OmniPayment/record" },
-                { "return_url_failure", $"{Request.Scheme}://{Request.Host}/api/OmniPayment/record" },
-                { "return_url_cancel",  $"{Request.Scheme}://{Request.Host}/api/OmniPayment/record" },
+                { "return_url",         $"{Request.Scheme}://{Request.Host}{Request.PathBase}/api/Payment/Omni-webhook/success" },
+                { "return_url_failure", $"{Request.Scheme}://{Request.Host}{Request.PathBase}/api/Payment/Omni-webhook/failure" },
+                { "return_url_cancel",  $"{Request.Scheme}://{Request.Host}{Request.PathBase}/api/Payment/Omni-webhook/cancel" },
             };
 
             string hash = ComputeHash(parameters);

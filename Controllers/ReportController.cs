@@ -19,12 +19,16 @@ namespace CHITSCHEME.Controllers
         {
             try
             {
-                if (page < 1) page = 1;
-                if (pageSize < 1) pageSize = 10;
+                if (page < 1)
+                    page = 1;
+
+                if (pageSize < 1)
+                    pageSize = 10;
 
                 int offset = (page - 1) * pageSize;
 
                 List<object> result = new();
+
                 int totalRecords = 0;
                 decimal totalWeight = 0;
                 decimal totalAmount = 0;
@@ -33,214 +37,376 @@ namespace CHITSCHEME.Controllers
                 {
                     await conn.OpenAsync();
 
-                    // Total count query
+                    // ============================================================
+                    // 1. TOTAL RECORD COUNT
+                    // ============================================================
+
                     string countQuery = @"
-            SELECT COUNT(*)
-            FROM BLEDGER B
-            LEFT JOIN PARTY P
-                ON P.FCODE = B.FCUCODE
-            WHERE B.fbilltype='CT'
+                SELECT COUNT(*)
+                FROM BLEDGER B
+                LEFT JOIN PARTY P
+                    ON P.FCODE = B.FCUCODE
 
-            AND (
-                @FromDate IS NULL
-                OR @ToDate IS NULL
-                OR B.fVouchdt BETWEEN @FromDate AND @ToDate
-            )
+                WHERE B.FBILLTYPE = 'CT'
 
-            AND (
-                @CustomerCode IS NULL
-                OR @CustomerCode=''
-                OR B.FCUCODE=@CustomerCode
-            )
+                AND (
+                    @FromDate IS NULL
+                    OR @ToDate IS NULL
+                    OR B.FVOUCHDT BETWEEN @FromDate AND @ToDate
+                )
 
-            AND (
-                @CustomerName IS NULL
-                OR @CustomerName=''
-                OR P.FACNAME LIKE '%' + @CustomerName + '%'
-            )";
+                AND (
+                    @CustomerCode IS NULL
+                    OR @CustomerCode = ''
+                    OR B.FCUCODE = @CustomerCode
+                )
+
+                AND (
+                    @CustomerName IS NULL
+                    OR @CustomerName = ''
+                    OR P.FACNAME LIKE '%' + @CustomerName + '%'
+                )";
+
                     using (SqlCommand countCmd = new SqlCommand(countQuery, conn))
                     {
                         countCmd.Parameters.AddWithValue(
                             "@FromDate",
-                            fromDate ?? (object)DBNull.Value);
+                            fromDate ?? (object)DBNull.Value
+                        );
 
                         countCmd.Parameters.AddWithValue(
                             "@ToDate",
-                            toDate ?? (object)DBNull.Value);
+                            toDate ?? (object)DBNull.Value
+                        );
 
                         countCmd.Parameters.AddWithValue(
                             "@CustomerCode",
                             string.IsNullOrWhiteSpace(customerCode)
                                 ? DBNull.Value
-                                : customerCode);
+                                : customerCode
+                        );
 
                         countCmd.Parameters.AddWithValue(
                             "@CustomerName",
                             string.IsNullOrWhiteSpace(customerName)
                                 ? DBNull.Value
-                                : customerName);
+                                : customerName
+                        );
 
-                        totalRecords = Convert.ToInt32(await countCmd.ExecuteScalarAsync());
+                        totalRecords = Convert.ToInt32(
+                            await countCmd.ExecuteScalarAsync()
+                        );
                     }
+
+
+                    // ============================================================
+                    // 2. TOTAL WEIGHT & TOTAL AMOUNT
+                    // ============================================================
+
                     string totalQuery = @"
-SELECT
-    ISNULL(SUM(B.FWT), 0) AS TotalWeight,
-    ISNULL(SUM(B.FBILLAMT), 0) AS TotalAmount
-FROM BLEDGER B
-LEFT JOIN PARTY P
-    ON P.FCODE = B.FCUCODE
-WHERE B.fbilltype='CT'
+                SELECT
+                    ISNULL(SUM(B.FWT), 0) AS TotalWeight,
+                    ISNULL(SUM(B.FBILLAMT), 0) AS TotalAmount
 
-AND (
-    @FromDate IS NULL
-    OR @ToDate IS NULL
-    OR B.fVouchdt BETWEEN @FromDate AND @ToDate
-)
+                FROM BLEDGER B
 
-AND (
-    @CustomerCode IS NULL
-    OR @CustomerCode=''
-    OR B.FCUCODE=@CustomerCode
-)
+                LEFT JOIN PARTY P
+                    ON P.FCODE = B.FCUCODE
 
-AND (
-    @CustomerName IS NULL
-    OR @CustomerName=''
-    OR P.FACNAME LIKE '%' + @CustomerName + '%'
-)";
+                WHERE B.FBILLTYPE = 'CT'
+
+                AND (
+                    @FromDate IS NULL
+                    OR @ToDate IS NULL
+                    OR B.FVOUCHDT BETWEEN @FromDate AND @ToDate
+                )
+
+                AND (
+                    @CustomerCode IS NULL
+                    OR @CustomerCode = ''
+                    OR B.FCUCODE = @CustomerCode
+                )
+
+                AND (
+                    @CustomerName IS NULL
+                    OR @CustomerName = ''
+                    OR P.FACNAME LIKE '%' + @CustomerName + '%'
+                )";
 
                     using (SqlCommand totalCmd = new SqlCommand(totalQuery, conn))
                     {
                         totalCmd.Parameters.AddWithValue(
                             "@FromDate",
-                            fromDate ?? (object)DBNull.Value);
+                            fromDate ?? (object)DBNull.Value
+                        );
 
                         totalCmd.Parameters.AddWithValue(
                             "@ToDate",
-                            toDate ?? (object)DBNull.Value);
+                            toDate ?? (object)DBNull.Value
+                        );
 
                         totalCmd.Parameters.AddWithValue(
                             "@CustomerCode",
                             string.IsNullOrWhiteSpace(customerCode)
                                 ? DBNull.Value
-                                : customerCode);
+                                : customerCode
+                        );
 
                         totalCmd.Parameters.AddWithValue(
                             "@CustomerName",
                             string.IsNullOrWhiteSpace(customerName)
                                 ? DBNull.Value
-                                : customerName);
+                                : customerName
+                        );
 
-                        using SqlDataReader reader = await totalCmd.ExecuteReaderAsync();
+                        using SqlDataReader reader =
+                            await totalCmd.ExecuteReaderAsync();
 
                         if (await reader.ReadAsync())
                         {
-                            totalWeight = reader["TotalWeight"] == DBNull.Value
-                                ? 0
-                                : Math.Round(Convert.ToDecimal(reader["TotalWeight"]), 3);
+                            totalWeight =
+                                reader["TotalWeight"] == DBNull.Value
+                                    ? 0
+                                    : Math.Round(
+                                        Convert.ToDecimal(reader["TotalWeight"]),
+                                        3
+                                    );
 
-                            totalAmount = reader["TotalAmount"] == DBNull.Value
-                                ? 0
-                                : Convert.ToDecimal(reader["TotalAmount"]);
+                            totalAmount =
+                                reader["TotalAmount"] == DBNull.Value
+                                    ? 0
+                                    : Convert.ToDecimal(
+                                        reader["TotalAmount"]
+                                    );
                         }
                     }
 
-                    // Data query with pagination
+
+                    // ============================================================
+                    // 3. PAGINATED DATA
+                    // ============================================================
+
                     string query = @"
-            SELECT
-                B.fcucode,
-                P.FACNAME,
-                B.FWT,
-                B.FBILLAMT,
-                B.FONLINE,
-                B.FVOUCHNO,
-                B.fVouchdt
-            FROM BLEDGER B
-            LEFT JOIN PARTY P
-                ON P.FCODE = B.FCUCODE
-            WHERE B.fbilltype='CT'
+                SELECT
+                    P.FID AS ID,
+                    B.FCUCODE,
+                    P.FACNAME,
+                    B.FWT,
+                    B.FBILLAMT,
+                    B.FONLINE,
 
-            AND (
-                @FromDate IS NULL
-                OR @ToDate IS NULL
-                OR B.fVouchdt BETWEEN @FromDate AND @ToDate
-            )
+                    B.FCASH,
+                    B.FCARD,
+                    B.FUPI,
+                    B.FNEFT,
 
-            AND (
-                @CustomerCode IS NULL
-                OR @CustomerCode=''
-                OR B.FCUCODE=@CustomerCode
-            )
+                    B.FVOUCHNO,
+                    B.FVOUCHDT,
 
-            AND (
-                @CustomerName IS NULL
-                OR @CustomerName=''
-                OR P.FACNAME LIKE '%' + @CustomerName + '%'
-            )
+                    CASE
+                        WHEN ISNULL(B.FCASH, 0) > 0
+                            THEN 'CASH'
 
-            ORDER BY B.fVouchdt DESC
-            OFFSET @offset ROWS
-            FETCH NEXT @pageSize ROWS ONLY";
+                        WHEN ISNULL(B.FCARD, 0) > 0
+                            THEN 'CARD'
+
+                        WHEN ISNULL(B.FUPI, 0) > 0
+                            THEN 'UPI'
+
+                        WHEN ISNULL(B.FNEFT, 0) > 0
+                            THEN 'NEFT'
+
+                        ELSE 'UNKNOWN'
+                    END AS PayMode
+
+                FROM BLEDGER B
+
+                LEFT JOIN PARTY P
+                    ON P.FCODE = B.FCUCODE
+
+                WHERE B.FBILLTYPE = 'CT'
+
+                AND (
+                    @FromDate IS NULL
+                    OR @ToDate IS NULL
+                    OR B.FVOUCHDT BETWEEN @FromDate AND @ToDate
+                )
+
+                AND (
+                    @CustomerCode IS NULL
+                    OR @CustomerCode = ''
+                    OR B.FCUCODE = @CustomerCode
+                )
+
+                AND (
+                    @CustomerName IS NULL
+                    OR @CustomerName = ''
+                    OR P.FACNAME LIKE '%' + @CustomerName + '%'
+                )
+
+                ORDER BY B.FVOUCHDT DESC
+
+                OFFSET @offset ROWS
+                FETCH NEXT @pageSize ROWS ONLY";
+
 
                     using (SqlCommand cmd = new SqlCommand(query, conn))
                     {
+                        // --------------------------------------------------------
+                        // DATE FILTER
+                        // --------------------------------------------------------
+
                         cmd.Parameters.AddWithValue(
                             "@FromDate",
-                            fromDate ?? (object)DBNull.Value);
+                            fromDate ?? (object)DBNull.Value
+                        );
 
                         cmd.Parameters.AddWithValue(
                             "@ToDate",
-                            toDate ?? (object)DBNull.Value);
+                            toDate ?? (object)DBNull.Value
+                        );
+
+
+                        // --------------------------------------------------------
+                        // CUSTOMER CODE
+                        // --------------------------------------------------------
 
                         cmd.Parameters.AddWithValue(
                             "@CustomerCode",
                             string.IsNullOrWhiteSpace(customerCode)
-                            ? DBNull.Value
-                            : customerCode);
+                                ? DBNull.Value
+                                : customerCode
+                        );
+
+
+                        // --------------------------------------------------------
+                        // CUSTOMER NAME
+                        // --------------------------------------------------------
 
                         cmd.Parameters.AddWithValue(
                             "@CustomerName",
                             string.IsNullOrWhiteSpace(customerName)
-                            ? DBNull.Value
-                            : customerName);
-
-                        cmd.Parameters.AddWithValue("@offset", offset);
-                        cmd.Parameters.AddWithValue("@pageSize", pageSize);
+                                ? DBNull.Value
+                                : customerName
+                        );
 
 
-                        using (SqlDataReader reader = await cmd.ExecuteReaderAsync())
+                        // --------------------------------------------------------
+                        // PAGINATION
+                        // --------------------------------------------------------
+
+                        cmd.Parameters.AddWithValue(
+                            "@offset",
+                            offset
+                        );
+
+                        cmd.Parameters.AddWithValue(
+                            "@pageSize",
+                            pageSize
+                        );
+
+
+                        using SqlDataReader reader =
+                            await cmd.ExecuteReaderAsync();
+
+                        while (await reader.ReadAsync())
                         {
-                            while (await reader.ReadAsync())
+                            // ====================================================
+                            // WEIGHT
+                            // ====================================================
+
+                            decimal weight = 0;
+
+                            if (reader["FWT"] != DBNull.Value)
                             {
-                                result.Add(new
-                                {
-                                    CustomerCode = reader["fcucode"]?.ToString(),
-                                    CustomerName = reader["FACNAME"]?.ToString(),
-
-                                    Weight = decimal.TryParse(
-                                        reader["FWT"]?.ToString(),
-                                        out decimal wt) ? wt : 0,
-
-                                    BillAmount = decimal.TryParse(
-                                        reader["FBILLAMT"]?.ToString(),
-                                        out decimal bill) ? bill : 0,
-                                    type = reader["FONLINE"]?.ToString(),
-                                    VoucherNo = reader["FVOUCHNO"]?.ToString(),
-                                    VoucherDate = reader["fVouchdt"]
-                                });
+                                decimal.TryParse(
+                                    reader["FWT"].ToString(),
+                                    out weight
+                                );
                             }
+
+
+                            // ====================================================
+                            // BILL AMOUNT
+                            // ====================================================
+
+                            decimal billAmount = 0;
+
+                            if (reader["FBILLAMT"] != DBNull.Value)
+                            {
+                                decimal.TryParse(
+                                    reader["FBILLAMT"].ToString(),
+                                    out billAmount
+                                );
+                            }
+
+
+                            // ====================================================
+                            // RESULT
+                            // ====================================================
+
+                            result.Add(new
+                            {
+                                ID = reader["ID"] == DBNull.Value
+                                ? ""
+                                : reader["ID"].ToString(),
+                                CustomerCode =
+                                    reader["FCUCODE"] == DBNull.Value
+                                        ? ""
+                                        : reader["FCUCODE"].ToString(),
+
+                                CustomerName =
+                                    reader["FACNAME"] == DBNull.Value
+                                        ? ""
+                                        : reader["FACNAME"].ToString(),
+
+                                Weight = weight,
+
+                                BillAmount = billAmount,
+
+                                PayMode =
+                                    reader["PayMode"] == DBNull.Value
+                                        ? "UNKNOWN"
+                                        : reader["PayMode"].ToString(),
+
+                                Type =
+                                    reader["FONLINE"] == DBNull.Value
+                                        ? ""
+                                        : reader["FONLINE"].ToString(),
+
+                                VoucherNo =
+                                    reader["FVOUCHNO"] == DBNull.Value
+                                        ? ""
+                                        : reader["FVOUCHNO"].ToString(),
+
+                                VoucherDate =
+                                    reader["FVOUCHDT"] == DBNull.Value
+                                        ? null
+                                        : reader["FVOUCHDT"]
+                            });
                         }
                     }
                 }
+
+
+                // ================================================================
+                // 4. RESPONSE
+                // ================================================================
 
                 return Ok(new
                 {
                     page,
                     pageSize,
+
                     totalRecords,
-                    totalPages = (int)Math.Ceiling(totalRecords / (double)pageSize),
+
+                    totalPages =
+                        (int)Math.Ceiling(
+                            totalRecords / (double)pageSize
+                        ),
 
                     totalWeight,
+
                     totalAmount,
 
                     data = result
@@ -248,7 +414,11 @@ AND (
             }
             catch (Exception ex)
             {
-                return BadRequest(ex.Message);
+                return BadRequest(new
+                {
+                    status = false,
+                    message = ex.Message
+                });
             }
         }
     }

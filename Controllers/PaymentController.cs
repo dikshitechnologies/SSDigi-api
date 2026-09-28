@@ -302,7 +302,7 @@ namespace CHITSCHEME.Controllers
         //   Secret : Razorpay:WebhookSecret  (appsettings / env var)
         // ─────────────────────────────────────────────────────────────────────
         [AllowAnonymous]
-        [HttpPost("Omni-webhook")]
+        [HttpPost("razorpay-webhook")]
         public async Task<IActionResult> RazorpayWebhook()
         {
             // ── 1. Read raw body BEFORE any model binding touches the stream ──
