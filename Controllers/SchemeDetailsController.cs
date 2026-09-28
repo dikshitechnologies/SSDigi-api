@@ -696,11 +696,11 @@ ORDER BY FACNAME;
 
 
 
-
         [HttpGet("SchemeReport/{SchemeId}")]
         public async Task<IActionResult> GetLedgerDetails(string SchemeId)
         {
             var ledgerDetails = new List<LedgerDetails>();
+
             decimal ledgerDue = 0;
             decimal partyTotalDue = 0;
 
@@ -710,21 +710,80 @@ ORDER BY FACNAME;
                 {
                     await connection.OpenAsync();
 
+                    // =========================================================
+                    // 1. LEDGER DETAILS + PAYMENT MODE
+                    // =========================================================
+
                     var ledgerQuery = @"
-                
+                SELECT  
+                    FORMAT(CAST(L.FDATE AS DATE), 'dd/MM/yyyy') AS FDATE,
+                    L.FVRAMOUNT,
+                    B.FWT,
 
-            SELECT 
-                FORMAT(CAST(L.FDATE AS DATE), 'dd/MM/yyyy') AS FDATE,
-                L.FVRAMOUNT,
-                B.FWT
-            FROM LEDGER L
-            JOIN PARTY P ON P.FID = L.FID
-            JOIN BLEDGER B ON B.FVOUCHNO = L.FVRNO 
-            WHERE 
-                L.FID = @FID 
-                AND L.FCRDB = 'CR' 
-                AND L.FTYPE = 'CT';
+                    -- ONLINE / OFFLINE
+                    CASE 
+                        WHEN NULLIF(LTRIM(RTRIM(B.FOmniTransactionId)), '') IS NOT NULL
+                            THEN 'Online'
+                        ELSE 'Offline'
+                    END AS PaymentType,
 
+                    -- PAYMENT MODE
+                    CASE 
+
+                        -- ONLINE PAYMENT
+                        WHEN NULLIF(LTRIM(RTRIM(B.FOmniTransactionId)), '') IS NOT NULL
+                            THEN ISNULL(OPR.PaymentMode, 'Online')
+
+                        -- OFFLINE PAYMENT
+                        ELSE
+                            STUFF(
+                                CASE 
+                                    WHEN ISNULL(B.FCASH, 0) > 0 
+                                        THEN ', Cash' 
+                                    ELSE '' 
+                                END +
+
+                                CASE 
+                                    WHEN ISNULL(B.FCARD, 0) > 0 
+                                        THEN ', Card' 
+                                    ELSE '' 
+                                END +
+
+                                CASE 
+                                    WHEN ISNULL(B.FUPI, 0) > 0 
+                                        THEN ', UPI' 
+                                    ELSE '' 
+                                END +
+
+                                CASE 
+                                    WHEN ISNULL(B.FNEFT, 0) > 0 
+                                        THEN ', NEFT' 
+                                    ELSE '' 
+                                END,
+
+                                1,
+                                2,
+                                ''
+                            )
+                    END AS PaymentMode
+
+                FROM LEDGER L
+
+                INNER JOIN PARTY P 
+                    ON P.FID = L.FID
+
+                INNER JOIN BLEDGER B 
+                    ON B.FVOUCHNO = L.FVRNO
+
+                LEFT JOIN OmniPaymentRecords OPR
+                    ON OPR.TransactionId = B.FOmniTransactionId
+
+                WHERE 
+                    L.FID = @FID
+                    AND L.FCRDB = 'CR'
+                    AND L.FTYPE = 'CT'
+
+                ORDER BY L.FDATE;
             ";
 
                     using (var command = new SqlCommand(ledgerQuery, connection))
@@ -737,9 +796,25 @@ ORDER BY FACNAME;
                             {
                                 var details = new LedgerDetails
                                 {
-                                    FDATE = reader["FDATE"].ToString(),
-                                    FVRAMOUNT = reader["FVRAMOUNT"].ToString(),
-                                    FWT = reader["FWT"].ToString()
+                                    FDATE = reader["FDATE"] != DBNull.Value
+                                        ? reader["FDATE"].ToString()
+                                        : "",
+
+                                    FVRAMOUNT = reader["FVRAMOUNT"] != DBNull.Value
+                                        ? reader["FVRAMOUNT"].ToString()
+                                        : "0",
+
+                                    FWT = reader["FWT"] != DBNull.Value
+                                        ? reader["FWT"].ToString()
+                                        : "0",
+
+                                    PaymentType = reader["PaymentType"] != DBNull.Value
+                                        ? reader["PaymentType"].ToString()
+                                        : "",
+
+                                    PaymentMode = reader["PaymentMode"] != DBNull.Value
+                                        ? reader["PaymentMode"].ToString()
+                                        : ""
                                 };
 
                                 ledgerDetails.Add(details);
@@ -747,24 +822,32 @@ ORDER BY FACNAME;
                         }
                     }
 
-                    // 2. Fetch Latest Due Information
+
+                    // =========================================================
+                    // 2. FETCH LATEST DUE INFORMATION
+                    // =========================================================
+
                     var dueQuery = @"
-                
-
-
-               
-                   SELECT TOP 1
-                     ISNULL(L.FDUE, 0) AS FDUE,  
-                    P.FDUE AS PartyFDUE, 
+                SELECT TOP 1 
+                    ISNULL(L.FDUE, 0) AS FDUE,
+                    ISNULL(P.FDUE, 0) AS PartyFDUE,
                     L.FVRNO
+
                 FROM PARTY P
-                LEFT JOIN LEDGER L 
-                    ON L.FID = P.FID AND L.FCRDB = 'CR'
-                LEFT JOIN BLEDGER B 
-                    ON B.FVOUCHNO = L.FVRNO AND B.FONLINE = 'Y'
-                WHERE P.FID =  @FID
-                ORDER BY L.FDUE DESC
-                    ";
+
+                LEFT JOIN LEDGER L  
+                    ON L.FID = P.FID 
+                    AND L.FCRDB = 'CR'
+
+                LEFT JOIN BLEDGER B  
+                    ON B.FVOUCHNO = L.FVRNO 
+                    AND B.FONLINE = 'Y'
+
+                WHERE 
+                    P.FID = @FID
+
+                ORDER BY L.FDUE DESC;
+            ";
 
                     using (var dueCommand = new SqlCommand(dueQuery, connection))
                     {
@@ -774,14 +857,23 @@ ORDER BY FACNAME;
                         {
                             if (await dueReader.ReadAsync())
                             {
-                                ledgerDue = dueReader["FDUE"] != DBNull.Value ? Convert.ToDecimal(dueReader["FDUE"]) : 0;
-                                partyTotalDue = dueReader["PartyFDUE"] != DBNull.Value ? Convert.ToDecimal(dueReader["PartyFDUE"]) : 0;
+                                ledgerDue = dueReader["FDUE"] != DBNull.Value
+                                    ? Convert.ToDecimal(dueReader["FDUE"])
+                                    : 0;
+
+                                partyTotalDue = dueReader["PartyFDUE"] != DBNull.Value
+                                    ? Convert.ToDecimal(dueReader["PartyFDUE"])
+                                    : 0;
                             }
                         }
                     }
                 }
 
-                // 3. Return combined result
+
+                // =========================================================
+                // 3. RETURN RESPONSE
+                // =========================================================
+
                 return Ok(new
                 {
                     LedgerDetails = ledgerDetails,
@@ -791,15 +883,25 @@ ORDER BY FACNAME;
             }
             catch (SqlException sqlEx)
             {
-                return StatusCode(StatusCodes.Status500InternalServerError, new { message = "Database error. Please try again later." });
+                return StatusCode(
+                    StatusCodes.Status500InternalServerError,
+                    new
+                    {
+                        message = "Database error. Please try again later."
+                    }
+                );
             }
             catch (Exception ex)
             {
-                return StatusCode(StatusCodes.Status500InternalServerError, new { message = "An unexpected error occurred. Please try again later." });
+                return StatusCode(
+                    StatusCodes.Status500InternalServerError,
+                    new
+                    {
+                        message = "An unexpected error occurred. Please try again later."
+                    }
+                );
             }
         }
-
-
 
 
 
@@ -1887,4 +1989,7 @@ public class LedgerDetails
     public string FDATE { get; set; }
     public string FVRAMOUNT { get; set; }
     public string FWT { get; set; }
+
+    public string PaymentType { get; set; }
+    public string PaymentMode { get; set; }
 }
