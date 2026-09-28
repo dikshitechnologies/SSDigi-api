@@ -808,32 +808,67 @@ ORDER BY FACNAME;
 
 
         static string gobaldatacode;
-        public static string GetSingleChitSchemeVoucherNo(SqlConnection conn, SqlTransaction transaction)
+
+        public static string GetSingleChitSchemeVoucherNo(
+            SqlConnection conn,
+            SqlTransaction transaction)
         {
-            // UPDLOCK  — converts the shared lock to an update lock so no other reader
-            //            can acquire a conflicting lock until this transaction commits.
-            // HOLDLOCK  — promotes to a serializable range lock so no new rows can be
-            //             inserted between the SELECT and the subsequent INSERT.
-            string query = "SELECT MAX(fVouchno) FROM Bledger WITH (UPDLOCK, HOLDLOCK) WHERE fBILLType = 'CT' AND FONLINE = 'Y'";
-            int startNumber = 1;
+            // Get prefix from COMPANY
+            string prefixQuery = "SELECT TOP 1 fPrefix FROM COMPANY";
 
-            using var cmd = new SqlCommand(query, conn, transaction);
-            var result = cmd.ExecuteScalar();
+            string prefix = "";
 
-            if (result != null && result != DBNull.Value && !string.IsNullOrWhiteSpace(result.ToString()))
+            using (var prefixCmd = new SqlCommand(prefixQuery, conn, transaction))
             {
-                string currentVouchNo = result.ToString();
-                string numericPart = new string(currentVouchNo.Where(char.IsDigit).ToArray());
+                var prefixResult = prefixCmd.ExecuteScalar();
 
-                if (!string.IsNullOrEmpty(numericPart) && int.TryParse(numericPart, out int number))
+                if (prefixResult != null && prefixResult != DBNull.Value)
                 {
-                    startNumber = number + 1;
+                    prefix = prefixResult.ToString().Trim();
                 }
             }
 
-            string paddedNumber = startNumber.ToString("D5"); // 5 digits with padding
-            gobaldatacode = paddedNumber;
-            return paddedNumber;
+            // Get last voucher number
+            string voucherQuery = @"
+        SELECT MAX(fVouchno)
+        FROM Bledger WITH (UPDLOCK, HOLDLOCK)
+        WHERE fBILLType = 'CT'
+          AND FONLINE = 'Y'";
+
+            int startNumber = 1;
+
+            using (var cmd = new SqlCommand(voucherQuery, conn, transaction))
+            {
+                var result = cmd.ExecuteScalar();
+
+                if (result != null &&
+                    result != DBNull.Value &&
+                    !string.IsNullOrWhiteSpace(result.ToString()))
+                {
+                    string currentVouchNo = result.ToString().Trim();
+
+                    // Remove prefix and get only numeric portion
+                    string numericPart = new string(
+                        currentVouchNo.Where(char.IsDigit).ToArray()
+                    );
+
+                    if (!string.IsNullOrEmpty(numericPart) &&
+                        int.TryParse(numericPart, out int number))
+                    {
+                        startNumber = number + 1;
+                    }
+                }
+            }
+
+            // 7 digits: 0000001
+            string paddedNumber = startNumber.ToString("D7");
+
+            // AA + 0000001
+            string voucherNo =  paddedNumber+ prefix;
+
+            gobaldatacode = voucherNo;
+
+            return voucherNo;
         }
 
 
@@ -1011,7 +1046,7 @@ ORDER BY FACNAME;
                     cmd.Parameters.AddWithValue("@FSMSSALES", "N");
                     cmd.Parameters.AddWithValue("@FSMSCHIT", "N");
                     cmd.Parameters.AddWithValue("@FINT", "0");
-                    cmd.Parameters.AddWithValue("@FRATE", item.Amount);
+                    cmd.Parameters.AddWithValue("@FRATE", item.FGRATE ?? (object)DBNull.Value);
                     cmd.Parameters.AddWithValue("@FCARD", "0");
                     cmd.Parameters.AddWithValue("@FUPI", item.Amount);
                     cmd.Parameters.AddWithValue("@FNEFT", "0");
@@ -1022,7 +1057,7 @@ ORDER BY FACNAME;
                     cmd.Parameters.AddWithValue("@FNEFTCODE", "");
                     cmd.Parameters.AddWithValue("@FNARRATION", "");
                     cmd.Parameters.AddWithValue("@FCHQCODE", "");
-                    cmd.Parameters.AddWithValue("@FUPICODE", "00068");
+                    cmd.Parameters.AddWithValue("@FUPICODE", "14412");
                     cmd.Parameters.AddWithValue("@FORDERSTATUS", "Y");
 
                     cmd.Parameters.AddWithValue("@fwt", item.finalwt ?? (object)DBNull.Value);
@@ -1060,7 +1095,7 @@ ORDER BY FACNAME;
                 // Insert DR entry
                 using (SqlCommand cmd = new SqlCommand(insertLedger, conn, transaction))
                 {
-                    cmd.Parameters.AddWithValue("@faccode", "00068");
+                    cmd.Parameters.AddWithValue("@faccode", "14412");
                     cmd.Parameters.AddWithValue("@fvrno", voucherNo);
                     cmd.Parameters.AddWithValue("@fType", "CT");
                     cmd.Parameters.AddWithValue("@fDate", DateTime.Now.Date);
@@ -1092,7 +1127,7 @@ ORDER BY FACNAME;
                     cmd.Parameters.AddWithValue("@fCrDb", "CR");
                     cmd.Parameters.AddWithValue("@fCaCb", "C");
                     cmd.Parameters.AddWithValue("@fvrAmount", item.Amount);
-                    cmd.Parameters.AddWithValue("@fRefcode", "00068");
+                    cmd.Parameters.AddWithValue("@fRefcode", "14412");
                     cmd.Parameters.AddWithValue("@fCompCode", item.CompCode);
                     cmd.Parameters.AddWithValue("@fRefNo", item.SchemeCode);
                     cmd.Parameters.AddWithValue("@fid", item.SchemeCode);

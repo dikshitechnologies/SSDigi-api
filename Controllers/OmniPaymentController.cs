@@ -80,6 +80,12 @@ namespace CHITSCHEME.Controllers
             if (!string.IsNullOrWhiteSpace(req.UserId))
                 parameters["udf1"] = req.UserId;
 
+            // Limit the hosted checkout to the method selected in the mobile app.
+            // Omniware values: upi (UPI/GPay) and dp (debit card with PIN).
+            string? paymentOptions = GetPaymentOptions(req.PaymentMethod);
+            if (paymentOptions != null)
+                parameters["payment_options"] = paymentOptions;
+
             parameters["hash"] = ComputeHash(parameters);
 
             try
@@ -509,7 +515,24 @@ namespace CHITSCHEME.Controllers
                                .Replace("-", "").ToUpper();
         }
 
-        // ── 5. SAVE-PENDING ──────────────────────────────────────────────────────
+       private static string? GetPaymentOptions(string? paymentMethod)
+        {
+            return paymentMethod?.Trim().ToLowerInvariant() switch
+            {
+                // UPI only
+                "upi" => "upi",
+                "gpay" => "upi",
+
+                // Cards + NetBanking only
+                "dp" => "cc,nb",
+                "card" => "cc,nb",
+                "debit" => "cc,nb",
+                "debit_card" => "cc,nb",
+
+                _ => null,
+            };
+        }
+                // ── 5. SAVE-PENDING ──────────────────────────────────────────────────────
         // Called by the app BEFORE redirecting the user to paymentUrl.
         // Stores the full ChitSchemeModel payload alongside the Omniware orderId
         // so the record callback can complete the Bledger/Ledger insert even if
@@ -625,6 +648,10 @@ namespace CHITSCHEME.Controllers
                 { "return_url_cancel",  $"{Request.Scheme}://{Request.Host}{Request.PathBase}/api/Payment/Omni-webhook/cancel" },
             };
 
+            string? paymentOptions = GetPaymentOptions(req.PaymentMethod);
+            if (paymentOptions != null)
+                parameters["payment_options"] = paymentOptions;
+
             string hash = ComputeHash(parameters);
             parameters["hash"] = hash;
 
@@ -653,6 +680,7 @@ namespace CHITSCHEME.Controllers
     // 1. create-order
     public class OmniOrderRequest
     {
+        public string? PaymentMethod { get; set; } // upi/gpay or card/debit
         public string  Amount      { get; set; }   // e.g. "250.00"
         public string  Name        { get; set; }   // customer name
         public string  Email       { get; set; }   // customer email
