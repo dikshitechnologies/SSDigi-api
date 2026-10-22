@@ -324,6 +324,16 @@ namespace CHITSCHEME_SSDigi.Controllers.New_Update
         [HttpPost("verifympin")]
         public async Task<IActionResult> VerifyMPIN([FromBody] VerifyMPINRequest request)
         {
+            return Ok(new
+            {
+                message = "Please update the app in Playstore / Appstore"
+            });
+        }
+        // ================== 5. Verify MPIN (Login) ==================
+        [AllowAnonymous]
+        [HttpPost("verifympinv2")]
+        public async Task<IActionResult> VerifyMPINv2([FromBody] VerifyMPINRequest request)
+        {
             if (request.UserId <= 0)
                 return BadRequest(new { success = false, message = "UserId is required." });
 
