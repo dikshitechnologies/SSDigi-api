@@ -358,40 +358,22 @@ WITH RankedSchemes AS
             ORDER BY ISNULL(L.MaxDue,0) DESC
         ) AS rn,
 
-        -- Current Month Paid (ONLINE + OFFLINE)
-       CASE
-    -- 330 Days Scheme -> Check Today's Payment
-    WHEN PARENT.fCode = '03026' THEN
-        CASE
-            WHEN EXISTS
-            (
-                SELECT 1
-                FROM LEDGER L3
-                WHERE L3.FID = P.FID
-                  AND CAST(L3.FDATE AS DATE) = CAST(GETDATE() AS DATE)
-                  AND L3.FCRDB = 'CR'
-                  AND L3.FTYPE = 'CT'
-            )
-            THEN 'Y'
-            ELSE 'N'
-        END
-
-    -- Other Schemes -> Check Current Month Payment
-    ELSE
-        CASE
-            WHEN EXISTS
-            (
-                SELECT 1
-                FROM LEDGER L3
-                WHERE L3.FID = P.FID
-                  AND MONTH(L3.FDATE) = MONTH(GETDATE())
-                  AND YEAR(L3.FDATE) = YEAR(GETDATE())
-                  AND L3.FCRDB = 'CR'
-                  AND L3.FTYPE = 'CT'
-            )
-            THEN 'Y'
-            ELSE 'N'
-        END
+      -- Current Month Paid
+CASE
+    WHEN ISNULL(L.MaxDue, 0) = P.FDUE
+        OR EXISTS
+        (
+            SELECT 1
+            FROM LEDGER L3
+            WHERE
+                L3.FID = P.FID
+                AND MONTH(L3.FDATE) = MONTH(GETDATE())
+                AND YEAR(L3.FDATE) = YEAR(GETDATE())
+                AND L3.FCRDB = 'CR'
+                AND L3.FTYPE = 'CT'
+        )
+    THEN 'Y'
+    ELSE 'N'
 END AS IS_CURRENT_MONTH_PAID
 
     FROM PARTY P
